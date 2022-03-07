@@ -66,9 +66,9 @@ class RabbitBrokerTest extends Specification {
         message.headers.id = messageId
         message.send()
 
-        then:
-        1 * channel.basicPublish("", "celery", { props = it }, _);
-        props.replyTo == clientId
+        then:				
+        1 * channel.basicPublish("", "celery",  { props==it }, _);       
+		props.replyTo == clientId
 
         where:
         messageId << (0..5).collect({UUID.randomUUID().toString()})
@@ -94,7 +94,7 @@ class RabbitBrokerTest extends Specification {
         message.send()
 
         then:
-        1 * channel.basicPublish("", "celery", { props = it }, _);
+        1 * channel.basicPublish("", "celery", { props == it }, _);
         props.deliveryMode == 2  // peristent
         props.priority == 0
     }
@@ -110,7 +110,7 @@ class RabbitBrokerTest extends Specification {
         message.send()
 
         then:
-        1 * channel.basicPublish("", "celery", { props = it }, _);
+        1 * channel.basicPublish("", "celery", { props == it }, _);
         props.headers["argsrepr"] == argsRepr
         props.headers["timelimit"] == [null, null]
         props.headers["retries"] == 0
@@ -145,7 +145,7 @@ class RabbitBrokerTest extends Specification {
         message.send()
 
         then:
-        1 * channel.basicPublish("", "celery", { props = it }, _);
+        1 * channel.basicPublish("", "celery", { props == it }, _);
         props.replyTo == null
 
         where:
@@ -173,7 +173,7 @@ class RabbitBrokerTest extends Specification {
         message.send()
 
         then:
-        1 * channel.basicPublish("", "celery", { props = it }, _);
+        1 * channel.basicPublish("", "celery", { props == it }, _);
         props.headers["task"] == task
 
         where:

@@ -9,6 +9,7 @@ import org.kohsuke.MetaInfServices;
 import com.geneea.celery.CeleryTask;
 
 import javax.annotation.processing.AbstractProcessor;
+import javax.annotation.processing.Filer;
 import javax.annotation.processing.Processor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
@@ -38,122 +39,128 @@ import java.util.stream.Collectors;
 
 @MetaInfServices(Processor.class)
 @SupportedAnnotationTypes("com.geneea.celery.CeleryTask")
-@SupportedSourceVersion(SourceVersion.RELEASE_8)
+//@SupportedSourceVersion(SourceVersion.RELEASE_8)
+@SupportedSourceVersion(SourceVersion.RELEASE_11)
 public class TaskProcessor extends AbstractProcessor {
 
-    private final VelocityEngine ve;
+	private final VelocityEngine ve;
 
-    public TaskProcessor() {
-        Properties props = new Properties();
-        URL url = TaskProcessor.class.getClassLoader().getResource("velocity.properties");
-        try {
-            props.load(url.openStream());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+	public TaskProcessor() {
+		Properties props = new Properties();
+		URL url = TaskProcessor.class.getClassLoader().getResource("velocity.properties");
+		try {
+			props.load(url.openStream());
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
 
-        ve = new VelocityEngine(props);
-        ve.init();
-    }
+		ve = new VelocityEngine(props);
+		ve.init();
+	}
 
-    @Override
-    public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+	@Override
+	public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
 
+		for (Element elem : roundEnv.getElementsAnnotatedWith(CeleryTask.class)) {
+			assert elem.getKind() == ElementKind.CLASS;
 
-        for (Element elem : roundEnv.getElementsAnnotatedWith(CeleryTask.class)) {
-            assert elem.getKind() == ElementKind.CLASS;
+			TypeElement taskClassElem = (TypeElement) elem;
 
-            TypeElement taskClassElem = (TypeElement) elem;
+			if (taskClassElem.getNestingKind().isNested()) {
+				processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "Error processing CeleryTask "
+						+ taskClassElem + ". Only top-level classes are supported as tasks.");
+				break;
+			}
 
-            if (taskClassElem.getNestingKind().isNested()) {
-                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
-                        "Error processing CeleryTask " + taskClassElem + ". Only top-level classes are supported as tasks.");
-                break;
-            }
+			final List<Map<Object, Object>> methods = findMethods(taskClassElem);
 
-            final List<Map<Object, Object>> methods = findMethods(taskClassElem);
+			PackageElement packageElement = (PackageElement) taskClassElem.getEnclosingElement();
+			Name packageName = packageElement.getQualifiedName();
 
-            PackageElement packageElement = (PackageElement) taskClassElem.getEnclosingElement();
-            Name packageName = packageElement.getQualifiedName();
+			writeProxy(taskClassElem, methods, packageName);
+			writeLoader(taskClassElem, packageName);
+		}
+		return true;
+	}
 
-            writeProxy(taskClassElem, methods, packageName);
-            writeLoader(taskClassElem, packageName);
-        }
-        return true;
-    }
+	private List<Map<Object, Object>> findMethods(Element elem) {
+		final List<Map<Object, Object>> methods = new ArrayList<>();
 
-    private List<Map<Object, Object>> findMethods(Element elem) {
-        final List<Map<Object, Object>> methods = new ArrayList<>();
+		elem.accept(new ElementScanner8<Void, Void>() {
+			@Override
+			public Void visitExecutable(ExecutableElement e, Void aVoid) {
+				if (!ImmutableList.of("<init>", "<clinit>", "").contains(e.getSimpleName().toString())) {
 
-        elem.accept(new ElementScanner8<Void, Void>() {
-            @Override
-            public Void visitExecutable(ExecutableElement e, Void aVoid) {
-                if (!ImmutableList.of("<init>", "<clinit>", "").contains(e.getSimpleName().toString())) {
+					List<Map<Object, Object>> parameters = e
+							.getParameters().stream().map((param) -> ImmutableMap.<Object, Object>of("simpleName",
+									param.getSimpleName(), "type", convert(param.asType())))
+							.collect(Collectors.toList());
 
-                    List<Map<Object, Object>> parameters = e.getParameters().stream().map((param) ->
-                            ImmutableMap.<Object, Object>of(
-                                    "simpleName", param.getSimpleName(),
-                                    "type", convert(param.asType())
-                        )).collect(Collectors.toList());
+					methods.add(ImmutableMap.of("simpleName", e.getSimpleName(), "returnType",
+							convert(e.getReturnType()), "parameters", parameters));
+				}
+				return super.visitExecutable(e, aVoid);
+			}
+		}, null);
+		return methods;
+	}
 
-                    methods.add(ImmutableMap.of("simpleName", e.getSimpleName(),
-                            "returnType", convert(e.getReturnType()),
-                            "parameters", parameters));
-                }
-                return super.visitExecutable(e, aVoid);
-            }
-        }, null);
-        return methods;
-    }
+	private void writeLoader(TypeElement elem, Name packageName) {
+		Name binaryName = processingEnv.getElementUtils().getBinaryName(elem);
+		try {
+			JavaFileObject file = processingEnv.getFiler().createSourceFile(binaryName + "Loader", elem);
 
-    private void writeLoader(TypeElement elem, Name packageName) {
-        Name binaryName = processingEnv.getElementUtils().getBinaryName(elem);
-        try {
-            JavaFileObject file = processingEnv.getFiler().createSourceFile(binaryName + "Loader", elem);
+			VelocityContext vc = new VelocityContext();
 
-            VelocityContext vc = new VelocityContext();
+			vc.put("taskName", elem.getSimpleName());
+			vc.put("packageName", packageName);
 
-            vc.put("taskName", elem.getSimpleName());
-            vc.put("packageName", packageName);
+			Template vt = ve.getTemplate("com/geneea/celery/templates/TaskLoader.vm");
 
-            Template vt = ve.getTemplate("com/geneea/celery/templates/TaskLoader.vm");
+			Writer writer = file.openWriter();
+			vt.merge(vc, writer);
+			writer.close();
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
 
-            Writer writer = file.openWriter();
-            vt.merge(vc, writer);
-            writer.close();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
+	private void writeProxy(TypeElement elem, List<Map<Object, Object>> methods, Name packageName) {
+		Name binaryName = processingEnv.getElementUtils().getBinaryName(elem);
+		System.out.println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+		try {
+			
+			Filer filter=processingEnv.getFiler();
 
-    private void writeProxy(TypeElement elem, List<Map<Object, Object>> methods, Name packageName) {
-        Name binaryName = processingEnv.getElementUtils().getBinaryName(elem);
-        try {
-            JavaFileObject file = processingEnv.getFiler().createSourceFile(binaryName + "Proxy", elem);
+			System.out.print(filter.getClass().toString());
+			JavaFileObject file = processingEnv.getFiler().createSourceFile(binaryName + "Proxy", elem);
+			
+			
+			VelocityContext vc = new VelocityContext();
 
-            VelocityContext vc = new VelocityContext();
+			vc.put("taskName", elem.getSimpleName());
+			vc.put("packageName", packageName);
+			vc.put("methods", methods);
 
-            vc.put("taskName", elem.getSimpleName());
-            vc.put("packageName", packageName);
-            vc.put("methods", methods);
+			Template vt = ve.getTemplate("com/geneea/celery/templates/TaskProxy.vm");
 
-            Template vt = ve.getTemplate("com/geneea/celery/templates/TaskProxy.vm");
+			Writer writer = file.openWriter();
+			vt.merge(vc, writer);
+			writer.close();
+						
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
 
-            Writer writer = file.openWriter();
-            vt.merge(vc, writer);
-            writer.close();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private String convert(TypeMirror type) {
-        if (type.getKind().isPrimitive()) {
-            return processingEnv.getTypeUtils().boxedClass((PrimitiveType) type).toString();
-        } else if (type.getKind() == TypeKind.VOID) { // for some reason wasn't catched by the previous condition
-            return "java.lang.Void";
-        } {
-            return type.toString();
-        }
-    }
+	private String convert(TypeMirror type) {
+		if (type.getKind().isPrimitive()) {
+			return processingEnv.getTypeUtils().boxedClass((PrimitiveType) type).toString();
+		} else if (type.getKind() == TypeKind.VOID) { // for some reason wasn't catched by the previous condition
+			return "java.lang.Void";
+		}
+		{
+			return type.toString();
+		}
+	}
 }

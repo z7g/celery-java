@@ -5,6 +5,6 @@ package com.geneea.celery;
  * <p>
  * Such loader is generated automatically when processing the {@link CeleryTask} annotation.
  */
-public interface CeleryTaskLoader {
-    Object loadTask();
+public interface CeleryTaskLoader<T> {
+    T loadTask();
 }

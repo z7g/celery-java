@@ -13,16 +13,20 @@ import java.util.function.Function;
  */
 class TaskRegistry {
 
-    private static final Map<String, Object> TASKS = Streams
-            .stream(ServiceLoader.load(CeleryTaskLoader.class))
-            .map((loader) -> loader.loadTask())
-            .collect(ImmutableMap.toImmutableMap((v) -> v.getClass().getName(), Function.identity()));
-
-    static Set<String> getRegisteredTaskNames() {
-        return TASKS.keySet();
+    // holder that ensures lazy loading
+    private static final class TasksHolder {
+        private static final Map<String, ?> TASKS = Streams
+                .stream(ServiceLoader.load(CeleryTaskLoader.class))
+                .map(CeleryTaskLoader::loadTask)
+                .collect(ImmutableMap.toImmutableMap((v) -> v.getClass().getName(), Function.identity()));
     }
 
-    static Object getTask(String taskName) {
-        return TASKS.get(taskName);
+    static Set<String> getRegisteredTaskNames() {
+        return TasksHolder.TASKS.keySet();
+    }
+
+    @SuppressWarnings("unchecked")
+    static <T> T getTask(String taskName) {
+        return (T) TasksHolder.TASKS.get(taskName);
     }
 }

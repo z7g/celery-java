@@ -23,7 +23,7 @@ class RabbitBackendTest extends Specification {
 
         then:
         1 * channel.queueDeclare(clientId, false, false, true, ["x-expires": 24 * 3600 * 1000])
-        1 * channel.basicConsume(clientId, { consumerArg = it })
+        1 * channel.basicConsume(clientId, { consumerArg == it })
         resultsProvider == consumerArg
 
         where:
@@ -39,7 +39,7 @@ class RabbitBackendTest extends Specification {
         when:
         backend.reportResult(taskId, queue, correlationId, data)
         then:
-        1 * channel.basicPublish("", queue, { props = it}, { result = new JsonSlurper().parse(it, "utf-8")})
+        1 * channel.basicPublish("", queue, { props == it}, { result == new JsonSlurper().parse(it, "utf-8")})
         props.correlationId == correlationId
         props.contentType == "application/json"
         props.contentEncoding == "utf-8"
@@ -64,7 +64,7 @@ class RabbitBackendTest extends Specification {
         when:
         backend.reportException(taskId, queue, correlationId, data)
         then:
-        1 * channel.basicPublish("", queue, { props = it}, { result = new JsonSlurper().parse(it, "utf-8")})
+        1 * channel.basicPublish("", queue, { props == it}, { result == new JsonSlurper().parse(it, "utf-8")})
         props.correlationId == correlationId
         props.contentType == "application/json"
         props.contentEncoding == "utf-8"
@@ -85,8 +85,10 @@ class RabbitBackendTest extends Specification {
 class RabbitResultConsumerTest extends Specification {
 
     def "Consumer should report result of a task"() {
-        def Channel channel = Mock(Channel.class)
-        def consumer = new RabbitResultConsumer(channel)
+//        def Channel channel = Mock(Channel.class)
+		def RabbitBackend backend=Mock(RabbitBackend.class)
+//        def consumer = new RabbitResultConsumer(channel)
+		def consumer = new RabbitResultConsumer(backend)
         def result = consumer.getResult(taskId)
 
         when:

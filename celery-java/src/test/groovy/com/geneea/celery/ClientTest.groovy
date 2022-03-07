@@ -193,7 +193,7 @@ class ClientWithBackendTest extends Specification {
         client.submit(TestingTask.class, "doWork", [0.5, new Payload(prop1: "p1val")] as Object[])
 
         then:
-        1 * message.headers.setId({ taskId = it })
+        1 * message.headers.setId({ taskId == it })
 
         and:
         taskId != null

@@ -6,10 +6,9 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks your code as a Celery CeleryTask.
+ * Marks your code as a <em>CeleryTask</em>.
  * <p>
- * The annotation processor included in this package then generates two classes - {@code *Proxy} and {@code *Loader}.
- * The loader is
+ * The annotation processor included in this module then generates two classes - {@code *Proxy} and {@code *Loader}.
  * <p>
  * All parameters and return types must be JSON-serializable.
  * <p>
